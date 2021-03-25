@@ -2,4 +2,6 @@
 
 export(corgi_score)
 export(pedagogy_feedback)
+export(recap_attendence)
+export(update_timeline)
 export(zoom_attendance)

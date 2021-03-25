@@ -23,4 +23,7 @@ Imports:
     stringr,
     DBI,
     tidyr,
-    tibble
+    tibble,
+    zoo,
+    padr,
+    purrr
