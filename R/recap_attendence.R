@@ -39,8 +39,17 @@ recap_attendence <- function(gform_sheet, absen_sheet,
   df_kalender <- read_sheet(ss = gform_sheet, sheet = "kalender")
   names(df_kalender) <- tolower(names(df_kalender))
 
+  ## Transform string to date
   df_kalender <- df_kalender %>%
     mutate_at(vars(c("mulai", "selesai")), dmy)
+
+  ## Create list of holiday
+  hari_libur <- df_kalender %>%
+    filter(!is.na(libur)) %>%
+    pull(libur) %>%
+    map(strsplit, ",") %>% # in case hari libur > 1 hari
+    unlist() %>%
+    dmy()
 
   df_date <- df_kalender %>%
     pivot_longer(cols = c(mulai, selesai),
@@ -56,7 +65,12 @@ recap_attendence <- function(gform_sheet, absen_sheet,
     ) %>%
     unnest() %>%
     select(-type) %>%
-    left_join(df_kalender)
+    left_join(df_kalender) %>%
+    select(-libur) %>%
+    filter(!date %in% hari_libur) %>%
+    group_by(kelas) %>%
+    mutate(day = 1:length(date)) %>%
+    ungroup()
 
 
   # Output 1: Rekap absensi dari google form --------------------------------
@@ -64,18 +78,19 @@ recap_attendence <- function(gform_sheet, absen_sheet,
   df_rekap <- read_sheet(ss = absen_sheet, sheet = absen_name) %>%
     drop_na(No)
 
-  ## Get student names only
+  # Hanya ambil nama student saja
   student_name <- df_rekap %>%
     pull("Student Full Name")
 
-  ## Ambil tanggal-tanggal kalender akademik sebelum hari ini
+  # Ambil tanggal-tanggal kalender akademik sebelum hari ini (today)
   date_col <- df_date %>%
-    filter(date < Sys.Date()) %>%
+    filter(date < Sys.Date(),
+           !date %in% hari_libur) %>%
     pull(date) %>%
     strftime(format = "%d/%m/%y")
 
-  ## ambil tanggal yang belum ada di sheet rekap absen
-  rm_col <- date_col[!date_col %in% names(df_rekap)]
+  # Hapus tanggal yang sudah ada di rekap absen
+  rm_col <- date_col[!date_col %in% c(names(df_rekap), hari_libur %>% strftime(format = "%d/%m/%y") )]
 
   ## Read Gform
   df_form <- read_sheet(ss = gform_sheet)
@@ -83,15 +98,19 @@ recap_attendence <- function(gform_sheet, absen_sheet,
   ## Convert Data from Gform into Rekap Absen sheet format
   df_absen <- df_form %>% # dari google form
     filter(Name %in% student_name) %>% # dari spreadsheet rekap absensi
-    mutate(date = as.Date(Timestamp)) %>% # diasumsikan tanggal isi form = tanggal kelas
+    mutate(date = date(Timestamp)) %>% # diasumsikan tanggal isi form = tanggal kelas
     select(Name, date, Day) %>%
-    left_join(df_date ,
-              by = "date") %>% # dari kalender akademik
+    distinct() %>%
+    left_join(df_date %>% select(kelas, date) ,
+              by = c("date")) %>% # dari kalender akademik
+    arrange(Name) %>%
     na.locf() %>% # jika mengisi di luar tanggal workshop diasumsikan sama dengan tanggal sebelumnya
     distinct() %>% # Menghapus absensi 2 kali untuk tanggal workshop yang sama
-    mutate(tanggal = mulai + days(Day) - days(1)) %>%
-    # filter(tanggal >= (Sys.Date() - days(7))) %>% # sesuai input
-    select(-c(cohort, spesialisasi, kelas, date, mulai, selesai)) %>%
+    arrange(Name) %>%
+    left_join(df_date %>% select(kelas, day, date) %>% rename(tanggal = date),
+              by = c("Day" = "day", "kelas")) %>%
+
+    select(-c(kelas, date)) %>%
     distinct() %>%
     arrange(tanggal) %>%
     mutate(tanggal = strftime(tanggal, format = "%d/%m/%y")) %>%
@@ -159,6 +178,11 @@ recap_attendence <- function(gform_sheet, absen_sheet,
       return(name_stud)
     }) %>%
     paste(sep = "", collapse = "|")
+
+  zoom_name <- case_when(zoom_name == "CP DV" ~ "Capstone DV Day 1",
+                         zoom_name == "CP ML" ~ "Capstone ML Day 1",
+                         T ~ zoom_name
+  )
 
   selected_agenda <- df_date %>%
     filter(agenda == zoom_name) %>%
