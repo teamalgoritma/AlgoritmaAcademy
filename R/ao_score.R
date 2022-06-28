@@ -48,6 +48,7 @@ ao_score <- function(path, sheet_url, sheet_name, column_name, max_score, email)
     dplyr::mutate_at(dplyr::vars(passed_status, user_email, display_name), stringr::str_trim, side = "both") %>%
     dplyr::filter(passed_status == "yes") %>%
     dplyr::distinct(display_name, user_email) %>%
+    dplyr::mutate(user_email = tolower(user_email)) %>%
     dplyr::pull(user_email)
 
   # Read and write to sheet
@@ -58,6 +59,7 @@ ao_score <- function(path, sheet_url, sheet_name, column_name, max_score, email)
 
   academy %>%
     dplyr::filter(!is.na(Class)) %>%
+    dplyr::mutate(Email = tolower(Email)) %>%
     transmute_at(.vars = dplyr::vars(dplyr::contains(column_name)),
                  .funs = function(x) ifelse(.$Email %in% ao, max_score,0)) %>% ## Scoring
     googlesheets4::range_write(ss = sheet_url,
